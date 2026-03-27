@@ -11,9 +11,16 @@ import ProfessorDashboard from "./pages/professor/ProfessorDashboard";
 import CreateCourse from "./pages/professor/CreateCourse";
 import CourseList from "./pages/professor/CourseList";
 import CourseDetail from "./pages/professor/CourseDetail";
+import CreateAssignment from "./pages/professor/CreateAssignment";
+import AssignmentDetail from "./pages/professor/AssignmentDetail";
+import SubmissionReview from "./pages/professor/SubmissionReview";
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentInvitations from "./pages/student/StudentInvitations";
 import StudentCourses from "./pages/student/StudentCourses";
+import StudentAssignments from "./pages/student/StudentAssignments";
+import AssignmentView from "./pages/student/AssignmentView";
+import WritingEditor from "./pages/student/WritingEditor";
+import StudentReport from "./pages/student/StudentReport";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,11 +42,18 @@ const App = () => (
             <Route path="/professor/courses" element={<CourseList />} />
             <Route path="/professor/courses/new" element={<CreateCourse />} />
             <Route path="/professor/courses/:courseId" element={<CourseDetail />} />
+            <Route path="/professor/courses/:courseId/assignments/new" element={<CreateAssignment />} />
+            <Route path="/professor/courses/:courseId/assignments/:assignmentId" element={<AssignmentDetail />} />
+            <Route path="/professor/courses/:courseId/assignments/:assignmentId/submissions/:submissionId" element={<SubmissionReview />} />
 
             {/* Student routes */}
             <Route path="/student" element={<StudentDashboard />} />
             <Route path="/student/invitations" element={<StudentInvitations />} />
             <Route path="/student/courses" element={<StudentCourses />} />
+            <Route path="/student/courses/:courseId/assignments" element={<StudentAssignments />} />
+            <Route path="/student/courses/:courseId/assignments/:assignmentId" element={<AssignmentView />} />
+            <Route path="/student/courses/:courseId/assignments/:assignmentId/write" element={<WritingEditor />} />
+            <Route path="/student/courses/:courseId/assignments/:assignmentId/report" element={<StudentReport />} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
