@@ -31,11 +31,11 @@ export default function StudentCourses() {
                 <p className="mt-3 text-sm text-muted-foreground">{course.instructor}</p>
                 <div className="mt-4 flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
                   <span>{course.term} {course.year}</span>
-                  {course.assignmentsDue > 0 && (
-                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">
-                      {course.assignmentsDue} due
-                    </span>
-                  )}
+                  <Link to={`/student/courses/course-1/assignments`}>
+                    <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                      Assignments <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>
