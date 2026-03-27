@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import type { Profile, UserRole } from '@/lib/types';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -9,35 +9,14 @@ interface AuthState {
   profile: Profile | null;
   roles: UserRole[];
   isLoading: boolean;
-  isDemo: boolean;
 }
 
 interface AuthContextType extends AuthState {
-  signInWithCAS: () => Promise<void>;
+  signInWithCAS: () => void;
   signOut: () => Promise<void>;
-  setDemoRole: (role: UserRole) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Demo data for when Supabase is not configured
-const DEMO_PROFESSOR_PROFILE: Profile = {
-  id: 'demo-prof-1',
-  email: 'professor@princeton.edu',
-  full_name: 'Dr. Eleanor Vance',
-  net_id: 'evance',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
-const DEMO_STUDENT_PROFILE: Profile = {
-  id: 'demo-student-1',
-  email: 'student@princeton.edu',
-  full_name: 'Alex Chen',
-  net_id: 'achen',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
@@ -46,32 +25,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profile: null,
     roles: [],
     isLoading: true,
-    isDemo: !isSupabaseConfigured(),
   });
 
-  useEffect(() => {
-    if (!isSupabaseConfigured()) {
-      setState(prev => ({ ...prev, isLoading: false, isDemo: true }));
-      return;
-    }
+  const loadUserData = async (user: User) => {
+    const [profileRes, rolesRes] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', user.id).single(),
+      supabase.from('user_roles').select('role').eq('user_id', user.id),
+    ]);
 
+    return {
+      profile: profileRes.data as Profile | null,
+      roles: (rolesRes.data || []).map((r: { role: string }) => r.role as UserRole),
+    };
+  };
+
+  useEffect(() => {
+    // Set up auth listener BEFORE getting session
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session?.user) {
-          // Fetch profile and roles
-          const [profileRes, rolesRes] = await Promise.all([
-            supabase.from('profiles').select('*').eq('id', session.user.id).single(),
-            supabase.from('user_roles').select('role').eq('user_id', session.user.id),
-          ]);
-
-          setState({
-            user: session.user,
-            session,
-            profile: profileRes.data as Profile | null,
-            roles: (rolesRes.data || []).map((r: { role: UserRole }) => r.role),
-            isLoading: false,
-            isDemo: false,
-          });
+          // Use setTimeout to avoid Supabase auth deadlock
+          setTimeout(async () => {
+            const { profile, roles } = await loadUserData(session.user);
+            setState({
+              user: session.user,
+              session,
+              profile,
+              roles,
+              isLoading: false,
+            });
+          }, 0);
         } else {
           setState({
             user: null,
@@ -79,7 +62,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             profile: null,
             roles: [],
             isLoading: false,
-            isDemo: false,
           });
         }
       }
@@ -90,35 +72,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signInWithCAS = async () => {
-    if (state.isDemo) return;
-    // In production, this would redirect to Princeton CAS
-    // which then redirects back to a Supabase Edge Function
-    // that validates the CAS ticket and creates a session
-    const casLoginUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cas-auth?redirect=${window.location.origin}/auth/callback`;
+  const signInWithCAS = () => {
+    const casLoginUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cas-auth?redirect=${encodeURIComponent(window.location.origin + '/auth/callback')}`;
     window.location.href = casLoginUrl;
   };
 
   const signOut = async () => {
-    if (state.isDemo) {
-      setState(prev => ({ ...prev, profile: null, roles: [], user: null, session: null }));
-      return;
-    }
     await supabase.auth.signOut();
   };
 
-  const setDemoRole = (role: UserRole) => {
-    const profile = role === 'professor' ? DEMO_PROFESSOR_PROFILE : DEMO_STUDENT_PROFILE;
-    setState(prev => ({
-      ...prev,
-      profile,
-      roles: [role],
-      user: { id: profile.id, email: profile.email } as User,
-    }));
-  };
-
   return (
-    <AuthContext.Provider value={{ ...state, signInWithCAS, signOut, setDemoRole }}>
+    <AuthContext.Provider value={{ ...state, signInWithCAS, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,18 +1,9 @@
-import { supabase, isSupabaseConfigured } from './supabase';
-import { demoStore } from './demo-store';
-import type { Course, Assignment, AssignmentSettings, Submission, ProcessMetrics, ProcessReport } from './types';
+import { supabase } from './supabase';
+import type { AssignmentSettings, ProcessMetrics } from './types';
 
 // ── Courses ────────────────────────────────────────────────────────────
 
 export async function getProfessorCourses(userId: string) {
-  if (!isSupabaseConfigured()) {
-    const courses = demoStore.getProfessorCourses(userId);
-    return courses.map(c => ({
-      ...c,
-      student_count: demoStore.getCourseEnrollments(c.id).length,
-      pending_invites: demoStore.getCourseInvitations(c.id).filter(i => i.status === 'pending').length,
-    }));
-  }
   const { data, error } = await supabase
     .from('course_instructors')
     .select('courses:course_id(*, course_enrollments(count), course_invitations(count))')
@@ -26,9 +17,6 @@ export async function getProfessorCourses(userId: string) {
 }
 
 export async function getStudentCourses(userId: string) {
-  if (!isSupabaseConfigured()) {
-    return demoStore.getStudentCourses(userId);
-  }
   const { data, error } = await supabase
     .from('course_enrollments')
     .select('courses:course_id(*)')
@@ -39,38 +27,47 @@ export async function getStudentCourses(userId: string) {
 }
 
 export async function getCourse(courseId: string) {
-  if (!isSupabaseConfigured()) return demoStore.getCourse(courseId) || null;
   const { data, error } = await supabase.from('courses').select('*').eq('id', courseId).single();
   if (error) throw error;
   return data;
 }
 
-export async function createCourse(data: { title: string; code: string; description?: string; term: string; year: number }, userId: string) {
-  if (!isSupabaseConfigured()) return demoStore.createCourse(data, userId);
-  const { data: course, error } = await supabase.from('courses').insert(data).select().single();
+export async function createCourse(
+  courseData: { title: string; code: string; description?: string; term: string; year: number },
+  userId: string
+) {
+  const { data: course, error } = await supabase.from('courses').insert(courseData).select().single();
   if (error) throw error;
-  await supabase.from('course_instructors').insert({ course_id: course.id, user_id: userId });
+  const { error: instructorError } = await supabase
+    .from('course_instructors')
+    .insert({ course_id: course.id, user_id: userId });
+  if (instructorError) throw instructorError;
   return course;
 }
 
 // ── Invitations ────────────────────────────────────────────────────────
 
 export async function getCourseInvitations(courseId: string) {
-  if (!isSupabaseConfigured()) return demoStore.getCourseInvitations(courseId);
-  const { data, error } = await supabase.from('course_invitations').select('*').eq('course_id', courseId).order('created_at', { ascending: false });
+  const { data, error } = await supabase
+    .from('course_invitations')
+    .select('*')
+    .eq('course_id', courseId)
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
 }
 
 export async function createInvitation(courseId: string, email: string, invitedBy: string) {
-  if (!isSupabaseConfigured()) return demoStore.createInvitation(courseId, email, invitedBy);
-  const { data, error } = await supabase.from('course_invitations').insert({ course_id: courseId, email, invited_by: invitedBy }).select().single();
+  const { data, error } = await supabase
+    .from('course_invitations')
+    .insert({ course_id: courseId, email, invited_by: invitedBy })
+    .select()
+    .single();
   if (error) throw error;
   return data;
 }
 
 export async function getStudentInvitations(email: string) {
-  if (!isSupabaseConfigured()) return demoStore.getStudentInvitations(email);
   const { data, error } = await supabase
     .from('course_invitations')
     .select('*, courses:course_id(title, code)')
@@ -87,22 +84,29 @@ export async function getStudentInvitations(email: string) {
 }
 
 export async function acceptInvitation(invitationId: string, userId: string) {
-  if (!isSupabaseConfigured()) { demoStore.acceptInvitation(invitationId, userId); return; }
-  const { data: inv } = await supabase.from('course_invitations').select('course_id').eq('id', invitationId).single();
+  const { data: inv } = await supabase
+    .from('course_invitations')
+    .select('course_id')
+    .eq('id', invitationId)
+    .single();
   if (!inv) throw new Error('Invitation not found');
-  await supabase.from('course_invitations').update({ status: 'accepted', accepted_at: new Date().toISOString() }).eq('id', invitationId);
+  await supabase
+    .from('course_invitations')
+    .update({ status: 'accepted', accepted_at: new Date().toISOString() })
+    .eq('id', invitationId);
   await supabase.from('course_enrollments').insert({ course_id: inv.course_id, user_id: userId });
 }
 
 export async function declineInvitation(invitationId: string) {
-  if (!isSupabaseConfigured()) { demoStore.declineInvitation(invitationId); return; }
-  await supabase.from('course_invitations').update({ status: 'declined' }).eq('id', invitationId);
+  await supabase
+    .from('course_invitations')
+    .update({ status: 'declined' })
+    .eq('id', invitationId);
 }
 
 // ── Enrollments ────────────────────────────────────────────────────────
 
 export async function getCourseEnrollments(courseId: string) {
-  if (!isSupabaseConfigured()) return demoStore.getCourseEnrollments(courseId);
   const { data, error } = await supabase
     .from('course_enrollments')
     .select('*, profiles:user_id(full_name, email)')
@@ -110,8 +114,10 @@ export async function getCourseEnrollments(courseId: string) {
     .eq('status', 'active');
   if (error) throw error;
   return (data || []).map((d: any) => ({
-    id: d.id, user_id: d.user_id,
-    name: d.profiles?.full_name || '', email: d.profiles?.email || '',
+    id: d.id,
+    user_id: d.user_id,
+    name: d.profiles?.full_name || '',
+    email: d.profiles?.email || '',
     enrolled_at: d.enrolled_at,
   }));
 }
@@ -119,8 +125,11 @@ export async function getCourseEnrollments(courseId: string) {
 // ── Assignments ────────────────────────────────────────────────────────
 
 export async function getCourseAssignments(courseId: string, publishedOnly = false) {
-  if (!isSupabaseConfigured()) return publishedOnly ? demoStore.getPublishedAssignments(courseId) : demoStore.getCourseAssignments(courseId);
-  let query = supabase.from('assignments').select('*').eq('course_id', courseId).order('created_at', { ascending: false });
+  let query = supabase
+    .from('assignments')
+    .select('*')
+    .eq('course_id', courseId)
+    .order('created_at', { ascending: false });
   if (publishedOnly) query = query.eq('is_published', true);
   const { data, error } = await query;
   if (error) throw error;
@@ -128,18 +137,29 @@ export async function getCourseAssignments(courseId: string, publishedOnly = fal
 }
 
 export async function getAssignment(assignmentId: string) {
-  if (!isSupabaseConfigured()) return demoStore.getAssignment(assignmentId) || null;
-  const { data, error } = await supabase.from('assignments').select('*').eq('id', assignmentId).single();
+  const { data, error } = await supabase
+    .from('assignments')
+    .select('*')
+    .eq('id', assignmentId)
+    .single();
   if (error) throw error;
   return data;
 }
 
 export async function createAssignment(data: {
-  course_id: string; title: string; description?: string; instructions?: string;
-  due_date?: string; settings: AssignmentSettings; is_published: boolean;
+  course_id: string;
+  title: string;
+  description?: string;
+  instructions?: string;
+  due_date?: string;
+  settings: AssignmentSettings;
+  is_published: boolean;
 }) {
-  if (!isSupabaseConfigured()) return demoStore.createAssignment(data);
-  const { data: assignment, error } = await supabase.from('assignments').insert(data).select().single();
+  const { data: assignment, error } = await supabase
+    .from('assignments')
+    .insert(data)
+    .select()
+    .single();
   if (error) throw error;
   return assignment;
 }
@@ -147,7 +167,6 @@ export async function createAssignment(data: {
 // ── Submissions ────────────────────────────────────────────────────────
 
 export async function getAssignmentSubmissions(assignmentId: string) {
-  if (!isSupabaseConfigured()) return demoStore.getAssignmentSubmissions(assignmentId);
   const { data, error } = await supabase
     .from('submissions')
     .select('*, profiles:user_id(full_name, email), process_reports(*)')
@@ -164,7 +183,6 @@ export async function getAssignmentSubmissions(assignmentId: string) {
 }
 
 export async function getSubmission(submissionId: string) {
-  if (!isSupabaseConfigured()) return demoStore.getSubmission(submissionId) || null;
   const { data, error } = await supabase
     .from('submissions')
     .select('*, profiles:user_id(full_name, email), process_reports(*)')
@@ -181,8 +199,6 @@ export async function getSubmission(submissionId: string) {
 }
 
 export async function getOrCreateSubmission(assignmentId: string, userId: string) {
-  if (!isSupabaseConfigured()) return demoStore.getOrCreateSubmission(assignmentId, userId);
-  // Try to find existing
   const { data: existing } = await supabase
     .from('submissions')
     .select('*')
@@ -192,7 +208,13 @@ export async function getOrCreateSubmission(assignmentId: string, userId: string
   if (existing) return existing;
   const { data, error } = await supabase
     .from('submissions')
-    .insert({ assignment_id: assignmentId, user_id: userId, content: '', word_count: 0, status: 'draft' })
+    .insert({
+      assignment_id: assignmentId,
+      user_id: userId,
+      content: '',
+      word_count: 0,
+      status: 'draft',
+    })
     .select()
     .single();
   if (error) throw error;
@@ -200,35 +222,53 @@ export async function getOrCreateSubmission(assignmentId: string, userId: string
 }
 
 export async function saveSubmissionContent(submissionId: string, content: string, wordCount: number) {
-  if (!isSupabaseConfigured()) { demoStore.updateSubmissionContent(submissionId, content, wordCount); return; }
-  await supabase.from('submissions').update({ content, word_count: wordCount, status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', submissionId);
+  await supabase
+    .from('submissions')
+    .update({
+      content,
+      word_count: wordCount,
+      status: 'in_progress',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', submissionId);
 }
 
-export async function submitSubmission(submissionId: string, content: string, wordCount: number, metrics: ProcessMetrics) {
-  if (!isSupabaseConfigured()) {
-    demoStore.updateSubmissionContent(submissionId, content, wordCount);
-    demoStore.submitSubmission(submissionId, metrics);
-    return;
-  }
-  await supabase.from('submissions').update({
-    content, word_count: wordCount, status: 'submitted', submitted_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-  }).eq('id', submissionId);
-  // Create process report
+export async function submitSubmission(
+  submissionId: string,
+  content: string,
+  wordCount: number,
+  metrics: ProcessMetrics
+) {
+  await supabase
+    .from('submissions')
+    .update({
+      content,
+      word_count: wordCount,
+      status: 'submitted',
+      submitted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', submissionId);
+
+  const pasteRatio = metrics.input.paste_dependence;
+  const revisionDepth = metrics.revision.revision_depth;
+  const draftingPattern = metrics.composition.drafting_pattern;
+  const sessionContinuity = metrics.session.session_continuity;
+
   await supabase.from('process_reports').insert({
-    submission_id: submissionId, metrics, timeline: [], // Timeline would be built from writing_events
+    submission_id: submissionId,
+    metrics,
+    timeline: [],
     summary_labels: {
-      paste_dependence: `${metrics.input.paste_dependence} paste dependence`,
-      revision_depth: `${metrics.revision.revision_depth} revision depth`,
-      drafting_pattern: metrics.composition.drafting_pattern.replace(/_/g, ' '),
-      session_continuity: `${metrics.session.session_continuity} session continuity`,
+      paste_dependence: `${pasteRatio} paste dependence`,
+      revision_depth: `${revisionDepth} revision depth`,
+      drafting_pattern: draftingPattern.replace(/_/g, ' '),
+      session_continuity: `${sessionContinuity} session continuity`,
     },
   });
 }
 
 export async function getStudentSubmission(assignmentId: string, userId: string) {
-  if (!isSupabaseConfigured()) {
-    return demoStore.getAssignmentSubmissions(assignmentId).find(s => s.user_id === userId) || null;
-  }
   const { data } = await supabase
     .from('submissions')
     .select('*, process_reports(*)')
@@ -236,14 +276,21 @@ export async function getStudentSubmission(assignmentId: string, userId: string)
     .eq('user_id', userId)
     .maybeSingle();
   if (!data) return null;
-  return { ...data, report: data.process_reports?.[0] || null, metrics: data.process_reports?.[0]?.metrics || null };
+  return {
+    ...data,
+    report: data.process_reports?.[0] || null,
+    metrics: data.process_reports?.[0]?.metrics || null,
+  };
 }
 
 // ── Reports ────────────────────────────────────────────────────────────
 
-export async function getReport(submissionId: string): Promise<ProcessReport | null> {
-  if (!isSupabaseConfigured()) return demoStore.getReport(submissionId) || null;
-  const { data, error } = await supabase.from('process_reports').select('*').eq('submission_id', submissionId).single();
+export async function getReport(submissionId: string) {
+  const { data, error } = await supabase
+    .from('process_reports')
+    .select('*')
+    .eq('submission_id', submissionId)
+    .single();
   if (error) return null;
   return data;
 }
