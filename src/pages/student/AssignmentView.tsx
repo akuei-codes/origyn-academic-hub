@@ -1,18 +1,41 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Clock, PenLine, FileText, Shield } from 'lucide-react';
-import { DEMO_ASSIGNMENTS } from '@/lib/demo-data';
+import { ArrowLeft, Clock, PenLine, FileText, Shield, CheckCircle2, Loader2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
+import * as api from '@/lib/api';
 
 export default function AssignmentView() {
   const { courseId, assignmentId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const assignment = DEMO_ASSIGNMENTS.find((a) => a.id === assignmentId) || DEMO_ASSIGNMENTS[0];
+  const { data: assignment, isLoading } = useQuery({
+    queryKey: ['assignment', assignmentId],
+    queryFn: () => api.getAssignment(assignmentId!),
+    enabled: !!assignmentId,
+  });
+
+  const { data: submission } = useQuery({
+    queryKey: ['student-submission', assignmentId, user?.id],
+    queryFn: () => api.getStudentSubmission(assignmentId!, user!.id),
+    enabled: !!assignmentId && !!user?.id,
+  });
+
+  if (isLoading) {
+    return <AppLayout><div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div></AppLayout>;
+  }
+
+  if (!assignment) {
+    return <AppLayout><div className="py-12 text-center text-muted-foreground">Assignment not found</div></AppLayout>;
+  }
+
+  const isSubmitted = submission?.status === 'submitted';
 
   return (
     <AppLayout>
@@ -31,7 +54,6 @@ export default function AssignmentView() {
       </PageHeader>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Instructions */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
@@ -45,20 +67,19 @@ export default function AssignmentView() {
           </Card>
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="font-serif text-xl">Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
-              {assignment.settings.time_limit_minutes && (
+              {assignment.settings?.time_limit_minutes && (
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Time limit</span>
                   <span className="font-medium">{assignment.settings.time_limit_minutes} minutes</span>
                 </div>
               )}
-              {assignment.settings.min_word_count && (
+              {assignment.settings?.min_word_count && (
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Word count</span>
                   <span className="font-medium">{assignment.settings.min_word_count}–{assignment.settings.max_word_count}</span>
@@ -66,16 +87,21 @@ export default function AssignmentView() {
               )}
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Paste allowed</span>
-                <span className="font-medium">{assignment.settings.paste_allowed ? 'Yes' : 'No'}</span>
+                <span className="font-medium">{assignment.settings?.paste_allowed ? 'Yes' : 'No'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Multiple sessions</span>
-                <span className="font-medium">{assignment.settings.multiple_sessions ? 'Yes' : 'No'}</span>
+                <span className="font-medium">{assignment.settings?.multiple_sessions ? 'Yes' : 'No'}</span>
               </div>
+              {isSubmitted && (
+                <div className="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-success">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span className="text-sm font-medium">Submitted</span>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Session notice */}
           <Card className="border-primary/20 bg-accent/30">
             <CardContent className="pt-6">
               <div className="flex gap-3">
@@ -88,12 +114,25 @@ export default function AssignmentView() {
             </CardContent>
           </Card>
 
-          <Link to={`/student/courses/${courseId}/assignments/${assignmentId}/write`}>
-            <Button className="w-full gap-2" size="lg">
-              <PenLine className="h-4 w-4" />
-              Start Writing
-            </Button>
-          </Link>
+          {isSubmitted ? (
+            <div className="space-y-3">
+              {assignment.settings?.student_can_view_report && (
+                <Link to={`/student/courses/${courseId}/assignments/${assignmentId}/report`}>
+                  <Button variant="outline" className="w-full gap-2" size="lg">
+                    <FileText className="h-4 w-4" />
+                    View Report
+                  </Button>
+                </Link>
+              )}
+            </div>
+          ) : (
+            <Link to={`/student/courses/${courseId}/assignments/${assignmentId}/write`}>
+              <Button className="w-full gap-2" size="lg">
+                <PenLine className="h-4 w-4" />
+                {submission?.status === 'in_progress' ? 'Continue Writing' : 'Start Writing'}
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
     </AppLayout>

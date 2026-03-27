@@ -1,125 +1,132 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { useWritingTracker } from '@/hooks/useWritingTracker';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useTimer } from '@/hooks/useTimer';
 import { useToast } from '@/hooks/use-toast';
-import { DEMO_ASSIGNMENTS } from '@/lib/demo-data';
+import { useAuth } from '@/contexts/AuthContext';
+import * as api from '@/lib/api';
 import {
-  BookOpen,
-  Clock,
-  Save,
-  Send,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  GraduationCap,
+  BookOpen, Clock, Save, Send, Loader2, CheckCircle2, AlertCircle, GraduationCap,
 } from 'lucide-react';
 
 function countWords(text: string): number {
-  return text
-    .trim()
-    .split(/\s+/)
-    .filter((w) => w.length > 0).length;
+  return text.trim().split(/\s+/).filter((w) => w.length > 0).length;
 }
 
 export default function WritingEditor() {
   const { courseId, assignmentId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
 
-  const assignment =
-    DEMO_ASSIGNMENTS.find((a) => a.id === assignmentId) || DEMO_ASSIGNMENTS[0];
+  const { data: assignment } = useQuery({
+    queryKey: ['assignment', assignmentId],
+    queryFn: () => api.getAssignment(assignmentId!),
+    enabled: !!assignmentId,
+  });
+
+  const { data: submission, isLoading: loadingSub } = useQuery({
+    queryKey: ['editor-submission', assignmentId, user?.id],
+    queryFn: () => api.getOrCreateSubmission(assignmentId!, user!.id),
+    enabled: !!assignmentId && !!user?.id,
+  });
 
   const [content, setContent] = useState('');
+  const [initialized, setInitialized] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const wordCount = countWords(content);
 
-  const tracker = useWritingTracker(assignment.settings.paste_allowed);
+  // Initialize content from existing submission
+  useEffect(() => {
+    if (submission && !initialized) {
+      setContent(submission.content || '');
+      setInitialized(true);
+    }
+  }, [submission, initialized]);
+
+  const settings = assignment?.settings || { paste_allowed: false };
+  const tracker = useWritingTracker(settings.paste_allowed);
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: string) => {
+      if (submission?.id) {
+        await api.saveSubmissionContent(submission.id, data, countWords(data));
+      }
+      tracker.recordAutosave(countWords(data));
+    },
+  });
 
   const { status: saveStatus } = useAutosave({
     data: content,
     onSave: async (data) => {
-      // In production: save to Supabase
-      tracker.recordAutosave(countWords(data));
-      await new Promise((r) => setTimeout(r, 300));
+      await saveMutation.mutateAsync(data);
     },
   });
 
   const timer = useTimer({
-    limitMinutes: assignment.settings.time_limit_minutes,
+    limitMinutes: settings.time_limit_minutes,
     onTimeUp: () => {
-      toast({
-        title: 'Time is up',
-        description: 'Your writing has been autosaved. Please submit.',
-      });
+      toast({ title: 'Time is up', description: 'Your writing has been autosaved. Please submit.' });
     },
   });
 
   useEffect(() => {
-    timer.start();
+    if (initialized) timer.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialized]);
 
   const handleSubmit = useCallback(async () => {
+    if (!submission?.id) return;
     setIsSubmitting(true);
-    // Compute metrics
     const metrics = tracker.computeMetrics();
-    console.log('Submission metrics:', metrics);
-    await new Promise((r) => setTimeout(r, 1000));
+    await api.submitSubmission(submission.id, content, wordCount, metrics);
     setIsSubmitting(false);
     setShowSubmitDialog(false);
     toast({ title: 'Submitted', description: 'Your writing has been submitted successfully.' });
     navigate(`/student/courses/${courseId}/assignments/${assignmentId}`);
-  }, [tracker, toast, navigate, courseId, assignmentId]);
+  }, [tracker, toast, navigate, courseId, assignmentId, submission, content, wordCount]);
 
   const saveIcon = () => {
     switch (saveStatus) {
-      case 'saving':
-        return <Loader2 className="h-3 w-3 animate-spin" />;
-      case 'saved':
-        return <CheckCircle2 className="h-3 w-3 text-success" />;
-      case 'error':
-        return <AlertCircle className="h-3 w-3 text-destructive" />;
-      default:
-        return <Save className="h-3 w-3" />;
+      case 'saving': return <Loader2 className="h-3 w-3 animate-spin" />;
+      case 'saved': return <CheckCircle2 className="h-3 w-3 text-success" />;
+      case 'error': return <AlertCircle className="h-3 w-3 text-destructive" />;
+      default: return <Save className="h-3 w-3" />;
     }
   };
-
   const saveLabel = () => {
     switch (saveStatus) {
-      case 'saving':
-        return 'Saving…';
-      case 'saved':
-        return 'Saved';
-      case 'error':
-        return 'Save error';
-      default:
-        return 'Idle';
+      case 'saving': return 'Saving…';
+      case 'saved': return 'Saved';
+      case 'error': return 'Save error';
+      default: return 'Idle';
     }
   };
 
-  // Word count requirements
-  const minMet = !assignment.settings.min_word_count || wordCount >= assignment.settings.min_word_count;
-  const maxExceeded = assignment.settings.max_word_count && wordCount > assignment.settings.max_word_count;
+  const minMet = !settings.min_word_count || wordCount >= settings.min_word_count;
+  const maxExceeded = settings.max_word_count && wordCount > settings.max_word_count;
+
+  if (loadingSub || !assignment) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      {/* Editor header */}
       <header className="flex items-center justify-between border-b bg-card/80 px-6 py-3 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <GraduationCap className="h-5 w-5 text-primary" />
@@ -130,14 +137,12 @@ export default function WritingEditor() {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Save status */}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {saveIcon()}
             <span>{saveLabel()}</span>
           </div>
 
-          {/* Timer */}
-          {assignment.settings.time_limit_minutes ? (
+          {settings.time_limit_minutes ? (
             <Badge variant={timer.remainingSeconds && timer.remainingSeconds < 300 ? 'destructive' : 'secondary'} className="gap-1.5 font-mono">
               <Clock className="h-3 w-3" />
               {timer.formattedRemaining}
@@ -149,7 +154,6 @@ export default function WritingEditor() {
             </Badge>
           )}
 
-          {/* Word count */}
           <Badge
             variant="secondary"
             className={`font-mono ${maxExceeded ? 'border-destructive text-destructive' : !minMet ? 'border-warning text-warning' : ''}`}
@@ -157,13 +161,11 @@ export default function WritingEditor() {
             {wordCount.toLocaleString()} words
           </Badge>
 
-          {/* Instructions toggle */}
           <Button variant="ghost" size="sm" onClick={() => setShowInstructions(true)} className="gap-1.5 text-muted-foreground">
             <BookOpen className="h-4 w-4" />
             <span className="hidden sm:inline">Instructions</span>
           </Button>
 
-          {/* Submit */}
           <Button size="sm" onClick={() => setShowSubmitDialog(true)} className="gap-1.5">
             <Send className="h-4 w-4" />
             Submit
@@ -171,7 +173,6 @@ export default function WritingEditor() {
         </div>
       </header>
 
-      {/* Writing area */}
       <div className="flex-1 overflow-auto">
         <div className="mx-auto max-w-3xl px-6 py-12">
           <textarea
@@ -191,7 +192,6 @@ export default function WritingEditor() {
         </div>
       </div>
 
-      {/* Instructions sheet */}
       <Sheet open={showInstructions} onOpenChange={setShowInstructions}>
         <SheetContent className="overflow-auto sm:max-w-lg">
           <SheetHeader>
@@ -204,7 +204,6 @@ export default function WritingEditor() {
         </SheetContent>
       </Sheet>
 
-      {/* Submit confirmation */}
       <Dialog open={showSubmitDialog} onOpenChange={setShowSubmitDialog}>
         <DialogContent>
           <DialogHeader>
@@ -224,19 +223,17 @@ export default function WritingEditor() {
             </div>
             {!minMet && (
               <p className="text-xs text-warning">
-                ⚠ Below minimum word count ({assignment.settings.min_word_count} words)
+                ⚠ Below minimum word count ({settings.min_word_count} words)
               </p>
             )}
             {maxExceeded && (
               <p className="text-xs text-destructive">
-                ⚠ Exceeds maximum word count ({assignment.settings.max_word_count} words)
+                ⚠ Exceeds maximum word count ({settings.max_word_count} words)
               </p>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSubmitDialog(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setShowSubmitDialog(false)}>Cancel</Button>
             <Button onClick={handleSubmit} disabled={isSubmitting} className="gap-2">
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirm Submission

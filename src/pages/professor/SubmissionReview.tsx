@@ -1,21 +1,41 @@
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, FileText, Clock } from 'lucide-react';
+import { ArrowLeft, FileText, Clock, Loader2 } from 'lucide-react';
 import { ProcessReportView } from '@/components/report/ProcessReport';
-import { DEMO_SUBMISSIONS, DEMO_REPORT } from '@/lib/demo-data';
 import { format } from 'date-fns';
+import * as api from '@/lib/api';
 
 export default function SubmissionReview() {
   const { courseId, assignmentId, submissionId } = useParams();
   const navigate = useNavigate();
 
-  const submission = DEMO_SUBMISSIONS.find((s) => s.id === submissionId) || DEMO_SUBMISSIONS[0];
-  const report = { ...DEMO_REPORT, submission_id: submission.id, metrics: submission.metrics || DEMO_REPORT.metrics };
+  const { data: submission, isLoading } = useQuery({
+    queryKey: ['submission', submissionId],
+    queryFn: () => api.getSubmission(submissionId!),
+    enabled: !!submissionId,
+  });
+
+  const { data: report } = useQuery({
+    queryKey: ['report', submissionId],
+    queryFn: () => api.getReport(submissionId!),
+    enabled: !!submissionId,
+  });
+
+  if (isLoading) {
+    return <AppLayout><div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div></AppLayout>;
+  }
+
+  if (!submission) {
+    return <AppLayout><div className="py-12 text-center text-muted-foreground">Submission not found</div></AppLayout>;
+  }
+
+  const reportData = report || submission.report;
 
   return (
     <AppLayout>
@@ -32,7 +52,7 @@ export default function SubmissionReview() {
         <div className="flex items-center gap-3">
           <Badge variant="secondary" className="gap-1.5">
             <FileText className="h-3 w-3" />
-            {submission.word_count.toLocaleString()} words
+            {submission.word_count?.toLocaleString()} words
           </Badge>
           {submission.submitted_at && (
             <Badge variant="secondary" className="gap-1.5">
@@ -50,7 +70,11 @@ export default function SubmissionReview() {
         </TabsList>
 
         <TabsContent value="report" className="mt-6">
-          <ProcessReportView report={report} />
+          {reportData ? (
+            <ProcessReportView report={reportData} />
+          ) : (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">No process report available for this submission.</CardContent></Card>
+          )}
         </TabsContent>
 
         <TabsContent value="text" className="mt-6">
@@ -64,7 +88,7 @@ export default function SubmissionReview() {
                   {submission.content}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground italic">Submission content not available in demo mode.</p>
+                <p className="text-sm text-muted-foreground italic">No content available.</p>
               )}
             </CardContent>
           </Card>

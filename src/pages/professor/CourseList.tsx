@@ -1,20 +1,24 @@
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { EmptyState } from '@/components/shared/EmptyState';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { BookOpen, Plus, Users, Mail, ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-
-const DEMO_COURSES = [
-  { id: '1', title: 'Advanced Expository Writing', code: 'WRI 305', term: 'Spring', year: 2026, studentCount: 12, pendingInvites: 3, isActive: true },
-  { id: '2', title: 'Creative Nonfiction Workshop', code: 'WRI 210', term: 'Spring', year: 2026, studentCount: 8, pendingInvites: 0, isActive: true },
-  { id: '3', title: 'Freshman Writing Seminar', code: 'WRI 101', term: 'Fall', year: 2025, studentCount: 15, pendingInvites: 0, isActive: false },
-];
+import { BookOpen, Plus, Users, Mail, ArrowRight, Loader2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import * as api from '@/lib/api';
 
 export default function CourseList() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const { data: courses = [], isLoading } = useQuery({
+    queryKey: ['professor-courses', user?.id],
+    queryFn: () => api.getProfessorCourses(user!.id),
+    enabled: !!user?.id,
+  });
 
   return (
     <AppLayout>
@@ -25,7 +29,11 @@ export default function CourseList() {
         </Button>
       </PageHeader>
 
-      {DEMO_COURSES.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : courses.length === 0 ? (
         <EmptyState
           icon={BookOpen}
           title="No courses yet"
@@ -35,7 +43,7 @@ export default function CourseList() {
         />
       ) : (
         <div className="space-y-3">
-          {DEMO_COURSES.map((course) => (
+          {courses.map((course: any) => (
             <Card
               key={course.id}
               className="group cursor-pointer transition-shadow hover:shadow-md animate-fade-in"
@@ -49,15 +57,15 @@ export default function CourseList() {
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-xs font-medium uppercase tracking-wider text-primary">{course.code}</p>
-                      <Badge variant={course.isActive ? 'default' : 'secondary'} className="text-xs">
-                        {course.isActive ? 'Active' : 'Archived'}
+                      <Badge variant={course.is_active ? 'default' : 'secondary'} className="text-xs">
+                        {course.is_active ? 'Active' : 'Archived'}
                       </Badge>
                     </div>
                     <p className="font-serif text-lg text-foreground">{course.title}</p>
                     <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><Users className="h-3 w-3" />{course.studentCount} students</span>
-                      {course.pendingInvites > 0 && (
-                        <span className="flex items-center gap-1 text-primary"><Mail className="h-3 w-3" />{course.pendingInvites} pending</span>
+                      <span className="flex items-center gap-1"><Users className="h-3 w-3" />{course.student_count || 0} students</span>
+                      {(course.pending_invites || 0) > 0 && (
+                        <span className="flex items-center gap-1 text-primary"><Mail className="h-3 w-3" />{course.pending_invites} pending</span>
                       )}
                       <span>{course.term} {course.year}</span>
                     </div>

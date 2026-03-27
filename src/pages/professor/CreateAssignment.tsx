@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,20 +12,24 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, ArrowLeft } from 'lucide-react';
+import { CalendarIcon, ArrowLeft, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import type { AssignmentSettings } from '@/lib/types';
+import * as api from '@/lib/api';
 
 export default function CreateAssignment() {
   const { courseId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [instructions, setInstructions] = useState('');
   const [dueDate, setDueDate] = useState<Date>();
+  const [isPublished, setIsPublished] = useState(false);
   const [settings, setSettings] = useState<AssignmentSettings>({
     paste_allowed: false,
     leave_and_return: false,
@@ -35,13 +40,37 @@ export default function CreateAssignment() {
   const [minWords, setMinWords] = useState('');
   const [maxWords, setMaxWords] = useState('');
 
+  const mutation = useMutation({
+    mutationFn: () => api.createAssignment({
+      course_id: courseId!,
+      title,
+      description: description || undefined,
+      instructions: instructions || undefined,
+      due_date: dueDate?.toISOString(),
+      is_published: isPublished,
+      settings: {
+        ...settings,
+        time_limit_minutes: timeLimitMinutes ? Number(timeLimitMinutes) : undefined,
+        min_word_count: minWords ? Number(minWords) : undefined,
+        max_word_count: maxWords ? Number(maxWords) : undefined,
+      },
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-assignments', courseId] });
+      toast({ title: 'Assignment created', description: `"${title}" has been created successfully.` });
+      navigate(`/professor/courses/${courseId}`);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
+  });
+
   const handleCreate = () => {
     if (!title.trim()) {
       toast({ title: 'Title required', description: 'Please enter an assignment title.', variant: 'destructive' });
       return;
     }
-    toast({ title: 'Assignment created', description: `"${title}" has been created successfully.` });
-    navigate(`/professor/courses/${courseId}`);
+    mutation.mutate();
   };
 
   return (
@@ -53,7 +82,6 @@ export default function CreateAssignment() {
       <PageHeader title="New Assignment" description="Create a writing assignment for your students" />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Main form */}
         <div className="space-y-6 lg:col-span-2">
           <Card>
             <CardHeader>
@@ -65,14 +93,12 @@ export default function CreateAssignment() {
                 <Input id="title" placeholder="e.g. Analytical Essay on Modernist Poetry" value={title} onChange={(e) => setTitle(e.target.value)} />
               </div>
               <div className="space-y-2">
+                <Label htmlFor="description">Short Description</Label>
+                <Input id="description" placeholder="Brief description shown in assignment lists" value={description} onChange={(e) => setDescription(e.target.value)} />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="instructions">Instructions</Label>
-                <Textarea
-                  id="instructions"
-                  placeholder="Write detailed instructions for students. Markdown formatting is supported."
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                  className="min-h-[200px] font-mono text-sm"
-                />
+                <Textarea id="instructions" placeholder="Write detailed instructions for students…" value={instructions} onChange={(e) => setInstructions(e.target.value)} className="min-h-[200px] font-mono text-sm" />
               </div>
               <div className="space-y-2">
                 <Label>Due Date</Label>
@@ -111,7 +137,6 @@ export default function CreateAssignment() {
           </Card>
         </div>
 
-        {/* Settings sidebar */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -124,6 +149,13 @@ export default function CreateAssignment() {
                 <Input id="timeLimit" type="number" placeholder="No limit" value={timeLimitMinutes} onChange={(e) => setTimeLimitMinutes(e.target.value)} />
               </div>
               <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-sm">Publish immediately</Label>
+                  <p className="text-xs text-muted-foreground">Make visible to students now</p>
+                </div>
+                <Switch checked={isPublished} onCheckedChange={setIsPublished} />
+              </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-sm">Allow paste</Label>
@@ -155,7 +187,8 @@ export default function CreateAssignment() {
             </CardContent>
           </Card>
 
-          <Button onClick={handleCreate} className="w-full" size="lg">
+          <Button onClick={handleCreate} disabled={mutation.isPending} className="w-full gap-2" size="lg">
+            {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Create Assignment
           </Button>
         </div>
