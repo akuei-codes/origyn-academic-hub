@@ -1,8 +1,10 @@
+import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Card, CardContent } from '@/components/ui/card';
-import { BookOpen } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { BookOpen, ArrowRight } from 'lucide-react';
 
 const DEMO_ENROLLED = [
   { id: '1', title: 'Advanced Expository Writing', code: 'WRI 305', term: 'Spring', year: 2026, instructor: 'Dr. Eleanor Vance', assignmentsDue: 1 },
@@ -29,11 +31,11 @@ export default function StudentCourses() {
                 <p className="mt-3 text-sm text-muted-foreground">{course.instructor}</p>
                 <div className="mt-4 flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
                   <span>{course.term} {course.year}</span>
-                  {course.assignmentsDue > 0 && (
-                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">
-                      {course.assignmentsDue} due
-                    </span>
-                  )}
+                  <Link to={`/student/courses/course-1/assignments`}>
+                    <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                      Assignments <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>

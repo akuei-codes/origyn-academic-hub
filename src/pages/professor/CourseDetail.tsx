@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatCard } from '@/components/shared/StatCard';
@@ -10,8 +10,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Users, Mail, BookOpen, Plus, Send, CheckCircle2, Clock, X } from 'lucide-react';
+import { Users, Mail, BookOpen, Plus, Send, CheckCircle2, Clock, X, FileText, ArrowRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { DEMO_ASSIGNMENTS } from '@/lib/demo-data';
+import { format } from 'date-fns';
 
 const DEMO_STUDENTS = [
   { id: '1', name: 'Alex Chen', email: 'achen@princeton.edu', enrolledAt: '2026-01-15' },
@@ -32,6 +34,7 @@ export default function CourseDetail() {
   const [invitations, setInvitations] = useState(DEMO_INVITATIONS);
 
   const course = { id: courseId, title: 'Advanced Expository Writing', code: 'WRI 305', term: 'Spring', year: 2026 };
+  const assignments = DEMO_ASSIGNMENTS.filter((a) => a.course_id === 'course-1');
 
   const handleInvite = () => {
     if (!inviteEmail.endsWith('@princeton.edu')) {
@@ -62,22 +65,66 @@ export default function CourseDetail() {
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
         <StatCard icon={Users} label="Enrolled Students" value={DEMO_STUDENTS.length} />
         <StatCard icon={Mail} label="Pending Invitations" value={invitations.filter(i => i.status === 'pending').length} />
-        <StatCard icon={BookOpen} label="Assignments" value={0} />
+        <StatCard icon={FileText} label="Assignments" value={assignments.length} />
       </div>
 
-      <Tabs defaultValue="students" className="animate-fade-in">
+      <Tabs defaultValue="assignments" className="animate-fade-in">
         <TabsList>
+          <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="students">Students</TabsTrigger>
           <TabsTrigger value="invitations">Invitations</TabsTrigger>
         </TabsList>
 
+        {/* Assignments tab */}
+        <TabsContent value="assignments" className="mt-6 space-y-4">
+          <div className="flex justify-end">
+            <Link to={`/professor/courses/${courseId}/assignments/new`}>
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" />
+                New Assignment
+              </Button>
+            </Link>
+          </div>
+          {assignments.length === 0 ? (
+            <EmptyState icon={FileText} title="No assignments yet" description="Create your first writing assignment for this course." />
+          ) : (
+            <div className="space-y-3">
+              {assignments.map((a) => (
+                <Card key={a.id} className="group transition-shadow hover:shadow-md">
+                  <CardContent className="flex items-center justify-between p-5">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <h3 className="font-serif text-base font-medium text-foreground">{a.title}</h3>
+                        <Badge variant={a.is_published ? 'default' : 'secondary'} className="text-xs">
+                          {a.is_published ? 'Published' : 'Draft'}
+                        </Badge>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-4 text-xs text-muted-foreground">
+                        {a.due_date && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Due {format(new Date(a.due_date), 'MMM d, yyyy')}
+                          </span>
+                        )}
+                        {a.settings.time_limit_minutes && <span>{a.settings.time_limit_minutes} min</span>}
+                      </div>
+                    </div>
+                    <Link to={`/professor/courses/${courseId}/assignments/${a.id}`}>
+                      <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground group-hover:text-foreground">
+                        View
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
         <TabsContent value="students" className="mt-6">
           {DEMO_STUDENTS.length === 0 ? (
-            <EmptyState
-              icon={Users}
-              title="No enrolled students"
-              description="Invite students to this course to get started."
-            />
+            <EmptyState icon={Users} title="No enrolled students" description="Invite students to this course to get started." />
           ) : (
             <Card>
               <Table>
@@ -103,7 +150,6 @@ export default function CourseDetail() {
         </TabsContent>
 
         <TabsContent value="invitations" className="mt-6 space-y-6">
-          {/* Invite form */}
           <Card>
             <CardHeader>
               <CardTitle className="font-serif text-xl">Invite a Student</CardTitle>
@@ -124,8 +170,6 @@ export default function CourseDetail() {
               </div>
             </CardContent>
           </Card>
-
-          {/* Invitation list */}
           <Card>
             <Table>
               <TableHeader>
