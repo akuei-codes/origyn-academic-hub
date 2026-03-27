@@ -1,8 +1,10 @@
+import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Card, CardContent } from '@/components/ui/card';
-import { BookOpen } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { BookOpen, ArrowRight } from 'lucide-react';
 
 const DEMO_ENROLLED = [
   { id: '1', title: 'Advanced Expository Writing', code: 'WRI 305', term: 'Spring', year: 2026, instructor: 'Dr. Eleanor Vance', assignmentsDue: 1 },
