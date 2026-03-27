@@ -1,34 +1,52 @@
 import { Link, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FileText, Clock, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { DEMO_ASSIGNMENTS } from '@/lib/demo-data';
+import { FileText, Clock, ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
+import * as api from '@/lib/api';
 
 export default function StudentAssignments() {
   const { courseId } = useParams();
-  const assignments = DEMO_ASSIGNMENTS.filter((a) => a.course_id === 'course-1' && a.is_published);
+  const { user } = useAuth();
 
-  // Simulated submission states
-  const submissionStates: Record<string, 'not_started' | 'in_progress' | 'submitted'> = {
-    'assign-1': 'submitted',
-    'assign-2': 'not_started',
-  };
+  const { data: assignments = [], isLoading } = useQuery({
+    queryKey: ['student-assignments', courseId],
+    queryFn: () => api.getCourseAssignments(courseId!, true),
+    enabled: !!courseId,
+  });
+
+  // Fetch submission status for each assignment
+  const { data: submissionStatuses = {} } = useQuery({
+    queryKey: ['student-submission-statuses', courseId, user?.id],
+    queryFn: async () => {
+      const statuses: Record<string, string> = {};
+      for (const a of assignments) {
+        const sub = await api.getStudentSubmission(a.id, user!.id);
+        statuses[a.id] = sub?.status || 'not_started';
+      }
+      return statuses;
+    },
+    enabled: !!user?.id && assignments.length > 0,
+  });
 
   return (
     <AppLayout>
       <PageHeader title="Assignments" description="Your writing assignments for this course" />
 
-      {assignments.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : assignments.length === 0 ? (
         <EmptyState icon={FileText} title="No assignments yet" description="Your professor hasn't published any assignments for this course yet." />
       ) : (
         <div className="space-y-4 animate-fade-in">
-          {assignments.map((assignment) => {
-            const state = submissionStates[assignment.id] || 'not_started';
+          {assignments.map((assignment: any) => {
+            const state = submissionStatuses[assignment.id] || 'not_started';
             return (
               <Card key={assignment.id} className="group transition-shadow hover:shadow-md">
                 <CardContent className="flex items-center justify-between p-6">
@@ -58,10 +76,10 @@ export default function StudentAssignments() {
                           Due {format(new Date(assignment.due_date), 'MMM d, yyyy')}
                         </span>
                       )}
-                      {assignment.settings.time_limit_minutes && (
+                      {assignment.settings?.time_limit_minutes && (
                         <span>{assignment.settings.time_limit_minutes} min limit</span>
                       )}
-                      {assignment.settings.min_word_count && (
+                      {assignment.settings?.min_word_count && (
                         <span>{assignment.settings.min_word_count}–{assignment.settings.max_word_count} words</span>
                       )}
                     </div>

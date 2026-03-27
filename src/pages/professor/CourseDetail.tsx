@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatCard } from '@/components/shared/StatCard';
@@ -10,40 +11,61 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Users, Mail, BookOpen, Plus, Send, CheckCircle2, Clock, X, FileText, ArrowRight } from 'lucide-react';
+import { Users, Mail, FileText, Plus, Send, CheckCircle2, Clock, X, ArrowRight, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { DEMO_ASSIGNMENTS } from '@/lib/demo-data';
+import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
-
-const DEMO_STUDENTS = [
-  { id: '1', name: 'Alex Chen', email: 'achen@princeton.edu', enrolledAt: '2026-01-15' },
-  { id: '2', name: 'Maya Patel', email: 'mpatel@princeton.edu', enrolledAt: '2026-01-16' },
-  { id: '3', name: 'James Wright', email: 'jwright@princeton.edu', enrolledAt: '2026-01-18' },
-];
-
-const DEMO_INVITATIONS = [
-  { id: '1', email: 'slee@princeton.edu', status: 'pending' as const, sentAt: '2026-03-20' },
-  { id: '2', email: 'rkim@princeton.edu', status: 'pending' as const, sentAt: '2026-03-22' },
-  { id: '3', email: 'jdoe@princeton.edu', status: 'accepted' as const, sentAt: '2026-03-10' },
-];
+import * as api from '@/lib/api';
 
 export default function CourseDetail() {
-  const { courseId } = useParams();
+  const { courseId } = useParams<{ courseId: string }>();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState('');
-  const [invitations, setInvitations] = useState(DEMO_INVITATIONS);
 
-  const course = { id: courseId, title: 'Advanced Expository Writing', code: 'WRI 305', term: 'Spring', year: 2026 };
-  const assignments = DEMO_ASSIGNMENTS.filter((a) => a.course_id === 'course-1');
+  const { data: course } = useQuery({
+    queryKey: ['course', courseId],
+    queryFn: () => api.getCourse(courseId!),
+    enabled: !!courseId,
+  });
+
+  const { data: assignments = [] } = useQuery({
+    queryKey: ['course-assignments', courseId],
+    queryFn: () => api.getCourseAssignments(courseId!),
+    enabled: !!courseId,
+  });
+
+  const { data: enrollments = [] } = useQuery({
+    queryKey: ['course-enrollments', courseId],
+    queryFn: () => api.getCourseEnrollments(courseId!),
+    enabled: !!courseId,
+  });
+
+  const { data: invitations = [] } = useQuery({
+    queryKey: ['course-invitations', courseId],
+    queryFn: () => api.getCourseInvitations(courseId!),
+    enabled: !!courseId,
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: () => api.createInvitation(courseId!, inviteEmail, user!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-invitations', courseId] });
+      toast({ title: 'Invitation sent', description: `Invited ${inviteEmail} to this course.` });
+      setInviteEmail('');
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
+  });
 
   const handleInvite = () => {
     if (!inviteEmail.endsWith('@princeton.edu')) {
       toast({ title: 'Invalid email', description: 'Only Princeton email addresses are allowed.', variant: 'destructive' });
       return;
     }
-    setInvitations(prev => [...prev, { id: Date.now().toString(), email: inviteEmail, status: 'pending', sentAt: new Date().toISOString().split('T')[0] }]);
-    toast({ title: 'Invitation sent', description: `Invited ${inviteEmail} to this course.` });
-    setInviteEmail('');
+    inviteMutation.mutate();
   };
 
   const statusIcon = (status: string) => {
@@ -55,16 +77,18 @@ export default function CourseDetail() {
     }
   };
 
+  const pendingCount = invitations.filter((i: any) => i.status === 'pending').length;
+
   return (
     <AppLayout>
       <PageHeader
-        title={course.title}
-        description={`${course.code} · ${course.term} ${course.year}`}
+        title={course?.title || 'Course'}
+        description={course ? `${course.code} · ${course.term} ${course.year}` : ''}
       />
 
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <StatCard icon={Users} label="Enrolled Students" value={DEMO_STUDENTS.length} />
-        <StatCard icon={Mail} label="Pending Invitations" value={invitations.filter(i => i.status === 'pending').length} />
+        <StatCard icon={Users} label="Enrolled Students" value={enrollments.length} />
+        <StatCard icon={Mail} label="Pending Invitations" value={pendingCount} />
         <StatCard icon={FileText} label="Assignments" value={assignments.length} />
       </div>
 
@@ -75,7 +99,6 @@ export default function CourseDetail() {
           <TabsTrigger value="invitations">Invitations</TabsTrigger>
         </TabsList>
 
-        {/* Assignments tab */}
         <TabsContent value="assignments" className="mt-6 space-y-4">
           <div className="flex justify-end">
             <Link to={`/professor/courses/${courseId}/assignments/new`}>
@@ -89,7 +112,7 @@ export default function CourseDetail() {
             <EmptyState icon={FileText} title="No assignments yet" description="Create your first writing assignment for this course." />
           ) : (
             <div className="space-y-3">
-              {assignments.map((a) => (
+              {assignments.map((a: any) => (
                 <Card key={a.id} className="group transition-shadow hover:shadow-md">
                   <CardContent className="flex items-center justify-between p-5">
                     <div className="flex-1">
@@ -106,13 +129,12 @@ export default function CourseDetail() {
                             Due {format(new Date(a.due_date), 'MMM d, yyyy')}
                           </span>
                         )}
-                        {a.settings.time_limit_minutes && <span>{a.settings.time_limit_minutes} min</span>}
+                        {a.settings?.time_limit_minutes && <span>{a.settings.time_limit_minutes} min</span>}
                       </div>
                     </div>
                     <Link to={`/professor/courses/${courseId}/assignments/${a.id}`}>
                       <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground group-hover:text-foreground">
-                        View
-                        <ArrowRight className="h-4 w-4" />
+                        View <ArrowRight className="h-4 w-4" />
                       </Button>
                     </Link>
                   </CardContent>
@@ -123,7 +145,7 @@ export default function CourseDetail() {
         </TabsContent>
 
         <TabsContent value="students" className="mt-6">
-          {DEMO_STUDENTS.length === 0 ? (
+          {enrollments.length === 0 ? (
             <EmptyState icon={Users} title="No enrolled students" description="Invite students to this course to get started." />
           ) : (
             <Card>
@@ -136,11 +158,11 @@ export default function CourseDetail() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {DEMO_STUDENTS.map((s) => (
+                  {enrollments.map((s: any) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.name}</TableCell>
                       <TableCell className="text-muted-foreground">{s.email}</TableCell>
-                      <TableCell className="text-muted-foreground">{s.enrolledAt}</TableCell>
+                      <TableCell className="text-muted-foreground">{s.enrolled_at ? format(new Date(s.enrolled_at), 'MMM d, yyyy') : ''}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -163,8 +185,8 @@ export default function CourseDetail() {
                   className="max-w-sm"
                   onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
                 />
-                <Button onClick={handleInvite} className="gap-2">
-                  <Send className="h-4 w-4" />
+                <Button onClick={handleInvite} disabled={inviteMutation.isPending} className="gap-2">
+                  {inviteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   Send Invite
                 </Button>
               </div>
@@ -180,7 +202,11 @@ export default function CourseDetail() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {invitations.map((inv) => (
+                {invitations.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground py-8">No invitations sent yet</TableCell>
+                  </TableRow>
+                ) : invitations.map((inv: any) => (
                   <TableRow key={inv.id}>
                     <TableCell className="font-medium">{inv.email}</TableCell>
                     <TableCell>
@@ -191,7 +217,7 @@ export default function CourseDetail() {
                         </Badge>
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{inv.sentAt}</TableCell>
+                    <TableCell className="text-muted-foreground">{inv.created_at ? format(new Date(inv.created_at), 'MMM d, yyyy') : ''}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
